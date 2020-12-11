@@ -36,6 +36,51 @@
 #endif
 #endif
 
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <iostream>
+#include <fstream>
+#include <ios>
+#include <string>
+#include <sstream>
+#include <netdb.h>
+#include <map>
+#include <utility>
+#include <vector>
+#include <cmath>
+#include "errno.h"
+#include <time.h>
+
+void log_save(const char *file, char *message)
+{
+  FILE* fp = NULL;
+  fp = fopen(file, "a");
+  fprintf(fp, "%s\n", message);
+  fclose(fp);
+}
+
+void uint_to_uint8(uintptr_t* source, uint8_t* dest,size_t size)
+{
+	
+	for (int i = 0; i < size; i++) {
+	    dest[i * 8] = (uint8_t)source[i];
+	    dest[i * 8 + 1] = (uint8_t)(source[i] >> 8);
+	    dest[i * 8 + 2] = (uint8_t)(source[i] >> 16);
+	    dest[i * 8 + 3] = (uint8_t)(source[i] >> 24);
+	    dest[i * 8 + 4] = (uint8_t)(source[i] >> 32);
+	    dest[i * 8 + 5] = (uint8_t)(source[i] >> 40);
+	    dest[i * 8 + 6] = (uint8_t)(source[i] >> 48);
+	    dest[i * 8 + 7] = (uint8_t)(source[i] >> 56);
+	}
+}
+
+
 namespace fuzzer {
 static const size_t kMaxUnitSizeToPrint = 256;
 
@@ -174,11 +219,43 @@ void Fuzzer::DumpUnitIfDiff(const uint8_t *Data, size_t Size) {
     SS << TPC.OutputDiffVec[i] << "_";
   }
 
-  if (has_zero && has_nonzero) {
-    UnitHadOutputDiff = true;
-    NumberOfDiffUnitsAdded++;
-    WriteUnitToFileWithPrefix({Data, Data + Size},
-                              ("diff_" + SS.str()).c_str());
+  if ( has_zero && has_nonzero) {
+    int size = TPC.UC->size;
+    int seq=0; 
+    int index = 0;
+    int pt = 0;
+    uint8_t Mid[TPC.GetNumPCs()*8];
+    uint8_t Coverage[TPC.GetNumPCs()*8];
+    size_t CovSize=0;
+    uint_to_uint8(TPC.PCs(),Mid,TPC.GetNumPCs());
+    memset(Coverage,0,TPC.GetNumPCs()*8);
+    for(int j = 0; j < size; j++)
+    {
+	index = index + 8*TPC.ModuleNum[j];
+        pt = CovSize;
+	if(TPC.OutputDiffVec[j]!=0)
+	{
+		memcpy(Coverage+pt,Mid+index,8*TPC.ModuleNum[j+1]);
+		CovSize += 8*TPC.ModuleNum[j+1];
+	}
+    }
+    
+    
+    uint8_t Hash[kSHA1NumBytes];
+    ComputeSHA1(Coverage,CovSize,Hash);
+    std::string tmp = Sha1ToString(Hash);
+    if(CoverageHash.count(tmp)>0)
+    {
+	Duplicate++;
+    }
+    else
+    {
+	    CoverageHash[tmp] = true;
+	    UnitHadOutputDiff = true;
+	    NumberOfDiffUnitsAdded++;
+	    WriteUnitToFileWithPrefix({Data, Data + Size},
+		                      ("diff_" + SS.str()).c_str());
+    }
   }
 }
 
@@ -275,8 +352,12 @@ void Fuzzer::PrintStats(const char *Where, const char *End, size_t Units) {
   if (!Options.Verbosity)
     return;
   Printf("#%zd\t%s", TotalNumberOfRuns, Where);
+  char message[100];
+  
   if (size_t N = TPC.GetTotalPCCoverage())
+  {
     Printf(" cov: %zd", N);
+  } 
   if (size_t N = Corpus.NumFeatures())
     Printf( " ft: %zd", N);
   if (!Corpus.empty()) {
@@ -314,6 +395,9 @@ void Fuzzer::PrintFinalStats() {
     Printf("stat::number_of_diffs:          %zd\n", NumberOfDiffUnitsAdded);
   Printf("stat::slowest_unit_time_sec:    %zd\n", TimeOfLongestUnitInSeconds);
   Printf("stat::peak_rss_mb:              %zd\n", GetPeakRSSMb());
+  Printf("stat::number_of_duplicates:	%zd\n", NumberOfDuplicate);
+  Printf("stat::coverage:	%zd\n", TPC.GetTotalPCCoverage());
+  Printf("stat::Duplicate:	%zd\n", Duplicate);
 }
 
 void Fuzzer::SetMaxInputLen(size_t MaxInputLen) {
@@ -393,12 +477,21 @@ void Fuzzer::ShuffleAndMinimize(UnitVector *InitialCorpus) {
   // Test the callback with empty input and never try it again.
   uint8_t dummy;
   ExecuteCallback(&dummy, 0);
-
+  int temp = 0;
   for (const auto &U : *InitialCorpus) {
-    RunOne(U.data(), U.size());
-    TryDetectingAMemoryLeak(U.data(), U.size(),
-                            /*DuringInitialCorpusExecution*/ true);
+    if(RunOne(U.data(), U.size()))
+    {
+      MD.RecordSuccessfulMutationSequence();
+      PrintStatusForNewUnit(U);
+      //WriteToOutputCorpus(U);
+      NumberOfNewUnitsAdded++;
+      TPC.PrintNewPCs();
+    }  
+    if (TotalNumberOfRuns >= Options.MaxNumberOfRuns)
+      break;
+    TryDetectingAMemoryLeak(U.data(), U.size(),/*DuringInitialCorpusExecution*/ true);
   }
+  Printf("%d \n",temp);
   PrintStats("INITED");
   if (Corpus.empty()) {
     Printf("ERROR: no interesting inputs were found. "
@@ -427,7 +520,6 @@ bool Fuzzer::RunOneCallback(const uint8_t *Data, size_t Size, size_t idx,
 
   int ret = ExecuteCallback(Data, Size);
   if (Options.DifferentialMode) TPC.OutputDiffVec[idx] = ret;
-
   FeatureSetTmp.clear();
   size_t NumUpdatesBefore = Corpus.NumFeatureUpdates();
   TPC.CollectFeatures([&](size_t Feature) {
@@ -438,8 +530,8 @@ bool Fuzzer::RunOneCallback(const uint8_t *Data, size_t Size, size_t idx,
   PrintPulseAndReportSlowInput(Data, Size);
   size_t NumNewFeatures = Corpus.NumFeatureUpdates() - NumUpdatesBefore;
   if (NumNewFeatures) {
-    Corpus.AddToCorpus({Data, Data + Size}, NumNewFeatures, MayDeleteFile,
-                       FeatureSetTmp);
+	Corpus.AddToCorpus({Data, Data + Size}, NumNewFeatures, MayDeleteFile,
+                       FeatureSetTmp);	
     CheckExitOnSrcPosOrItem();
     return true;
   }
@@ -452,22 +544,50 @@ bool Fuzzer::RunOneCallback(const uint8_t *Data, size_t Size, size_t idx,
 
 bool Fuzzer::RunOne(const uint8_t *Data, size_t Size, bool MayDeleteFile,
                     InputInfo *II) {
-  if (Options.DifferentialMode) {
+  if (Options.DifferentialMode) {      
+    TPC.ResetCoverage();
     size_t ret = 0, cb_ret = 0, features = 0;
     UnitHadOutputDiff = false;
     std::vector<int> feature_vec;
-    EF->__sanitizer_update_counter_bitset_and_clear_counters(0);
+    size_t CoverageBefore = TPC.GetTotalPCCoverage();
+    
+    //EF->__sanitizer_update_counter_bitset_and_clear_counters(0);
     for (int i = 0; i < TPC.UC->size; ++i) {
       CB = TPC.UC->callbacks[i];
       cb_ret = RunOneCallback(Data, Size, i, MayDeleteFile, II);
       features += cb_ret;
       feature_vec.push_back(cb_ret);
     }
-
-    bool new_diff = TPC.NewOutputDiff() | TPC.NewTraceDiff(feature_vec);
+    size_t NumCoverage = TPC.GetTotalPCCoverage() - CoverageBefore;
+    //bool new_diff = TPC.NewOutputDiff() | (NumCoverage > 0);
+    //bool new_diff = TPC.NewOutputDiff() | TPC.NewTraceDiff(feature_vec);
+    bool new_diff = TPC.NewOutputDiff_change();
+    if(TPC.NewTraceDiff(feature_vec))
+    {
+        NumberofValidCases++;
+    }
     if (new_diff)
+    {
+      FeatureSetTmp.clear();
       DumpUnitIfDiff(Data, Size);
-
+      if(UnitHadOutputDiff)
+      {
+		Corpus.AddToCorpus({Data, Data + Size}, NumCoverage, MayDeleteFile,
+                       FeatureSetTmp);      
+      }
+      else
+      {}
+    }
+    //TPC.ResetCoverage(); 
+    TotalNumberOfRuns++;
+    //log 
+    if ((int)TotalNumberOfRuns % 20 == 0)
+    {
+	char message[100];
+	sprintf(message,"%zd\t%zd\t%zd\t%zd",TotalNumberOfRuns,Duplicate,NumberOfDiffUnitsAdded,NumberofValidCases);
+	log_save("./log",message);
+    }
+    
     return features > 0 ? features : new_diff;
   }
 
@@ -499,7 +619,7 @@ static bool LooseMemeq(const uint8_t *A, const uint8_t *B, size_t Size) {
 }
 
 int Fuzzer::ExecuteCallback(const uint8_t *Data, size_t Size) {
-  TotalNumberOfRuns++;
+ 
   assert(InFuzzingThread());
   if (SMR.IsClient())
     SMR.WriteByteArray(Data, Size);
@@ -649,17 +769,36 @@ void Fuzzer::MutateAndTestOne() {
   for (int i = 0; i < Options.MutateDepth; i++) {
     if (TotalNumberOfRuns >= Options.MaxNumberOfRuns)
       break;
-    memcpy(PreviousUnit, CurrentUnitData, Size);
-    PreviousSize = Size;
+    
+      
     size_t NewSize = 0;
-    NewSize = MD.Mutate(CurrentUnitData, Size, CurrentMaxMutationLen);
+    
+    do{
+	
+	memcpy(PreviousUnit, CurrentUnitData, Size);
+    	PreviousSize = Size;  
+
+	NewSize = MD.Mutate(CurrentUnitData, Size, CurrentMaxMutationLen);
+	uint8_t Hash[kSHA1NumBytes];
+        ComputeSHA1((uint8_t *)(CurrentUnitData), NewSize, Hash);
+	std::string tmp(Hash,Hash+kSHA1NumBytes);
+	if(hashMap.count(tmp) > 0)
+	{	
+		NumberOfDuplicate++;
+		continue;
+	}
+	hashMap[tmp] = true;
+	
+    }while(NewSize > CurrentMaxMutationLen);
+    
     assert(NewSize > 0 && "Mutator returned empty unit");
     assert(NewSize <= CurrentMaxMutationLen && "Mutator return overisized unit");
     Size = NewSize;
     II.NumExecutedMutations++;
     if (RunOne(CurrentUnitData, Size, /*MayDeleteFile=*/true, &II)) {
-      ReportNewCoverage(&II, {CurrentUnitData, CurrentUnitData + Size});
-      if (UnitHadOutputDiff) {
+	ReportNewCoverage(&II, {CurrentUnitData, CurrentUnitData + Size});
+      if (UnitHadOutputDiff) {	
+        
         uint8_t Hash[kSHA1NumBytes];
         ComputeSHA1((uint8_t *)(CurrentUnitData), Size, Hash);
         std::string s = Sha1ToString(Hash) + "_BeforeMutationWas_";
@@ -671,6 +810,7 @@ void Fuzzer::MutateAndTestOne() {
     TryDetectingAMemoryLeak(CurrentUnitData, Size,
                             /*DuringInitialCorpusExecution*/ false);
   }
+  delete [] PreviousUnit;
 }
 
 void Fuzzer::Loop() {
@@ -678,6 +818,8 @@ void Fuzzer::Loop() {
   system_clock::time_point LastCorpusReload = system_clock::now();
   if (Options.DoCrossOver)
     MD.SetCorpus(&Corpus);
+  
+  srand((int)time(0));
   while (true) {
     auto Now = system_clock::now();
     if (duration_cast<seconds>(Now - LastCorpusReload).count() >=

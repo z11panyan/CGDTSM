@@ -259,7 +259,12 @@ private:
     Weights.resize(N);
     std::iota(Intervals.begin(), Intervals.end(), 0);
     for (size_t i = 0; i < N; i++)
-      Weights[i] = Inputs[i]->NumFeatures * (i + 1);
+    {
+	Weights[i] = Inputs[i]->NumFeatures * (i + 1) ;
+	//Weights[i] = Inputs[i]->NumFeatures;
+	//printf("%zu,%f ",Inputs[i]->NumFeatures,Weights[i]);
+    }    
+    //printf("\n");
     CorpusDistribution = std::piecewise_constant_distribution<double>(
         Intervals.begin(), Intervals.end(), Weights.begin());
   }

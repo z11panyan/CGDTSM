@@ -93,6 +93,7 @@ class TracePC {
   void HandleCallerCallee(uintptr_t Caller, uintptr_t Callee);
   template <class T> void HandleCmp(uintptr_t PC, T Arg1, T Arg2);
   size_t GetTotalPCCoverage();
+  void ResetCoverage(); //change on 11.6
   void SetUseCounters(bool UC) { UseCounters = UC; }
   void SetUseValueProfile(bool VP) { UseValueProfile = VP; }
   void SetPrintNewPCs(bool P) { DoPrintNewPCs = P; }
@@ -130,12 +131,14 @@ class TracePC {
     assert(Idx < GetNumPCs());
     return PCs()[Idx];
   }
-
+  uintptr_t *PCs() const;
   std::vector<int> OutputDiffVec;
   UserCallbacks *UC;
   bool NewOutputDiff();
+  bool NewOutputDiff_change();
   bool NewTraceDiff(std::vector<int>& feature_v);
-
+  bool NewCoverage();
+  size_t ModuleNum[10];
 private:
   bool UseCounters = false;
   bool UseValueProfile = false;
@@ -152,9 +155,9 @@ private:
   struct { uint8_t *Start, *Stop; } ModuleCounters[4096];
   size_t NumModulesWithInline8bitCounters;  // linker-initialized.
   size_t NumInline8bitCounters;
-
+  
   uint8_t *Counters() const;
-  uintptr_t *PCs() const;
+  
 
   std::set<uintptr_t> *PrintedPCs;
 

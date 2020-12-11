@@ -24,7 +24,7 @@
 #include <climits>
 #include <cstdlib>
 #include <string.h>
-
+#include <map>
 namespace fuzzer {
 
 using namespace std::chrono;
@@ -119,10 +119,12 @@ private:
   size_t TotalNumberOfRuns = 0;
   size_t NumberOfNewUnitsAdded = 0;
   size_t NumberOfDiffUnitsAdded = 0;
-
+  size_t NumberofValidCases = 0;
   bool HasMoreMallocsThanFrees = false;
   size_t NumberOfLeakDetectionAttempts = 0;
-
+  std::map<std::string, bool> hashMap;
+  size_t NumberOfDuplicate = 0;
+  size_t Duplicate = 0;
   UserCallback CB;
   InputCorpus &Corpus;
   MutationDispatcher &MD;
@@ -141,6 +143,7 @@ private:
   // Need to know our own thread.
   static thread_local bool IsMyThread;
   static thread_local bool UnitHadOutputDiff;
+  std::map<std::string, bool> CoverageHash;
 };
 
 } // namespace fuzzer

@@ -1,23 +1,17 @@
-# NEZHA
-NEZHA is an efficient and domain-independent differential
-fuzzer developed at Columbia University. NEZHA exploits the
-behavioral asymmetries between multiple test programs to focus on inputs that
+# CGDTSM
+CGDTSM, whose fullname is Coverage-guided Differential Testing with Syntax-based Mutation
+It is a hybrid tool based on Nezha-dt and TLS-diff
+CGDTSM exploits the behavioral asymmetries between multiple test programs to focus on inputs that
 are more likely to trigger logic bugs.
 
-## What?
-NEZHA features several runtime diversity-promoting metrics used to generate
-inputs for multi-app differential testing. These metrics are described in
-detail in the 2017 IEEE Symposium on Security and Privacy (Oakland) paper -
-[NEZHA: Efficient Domain-Independent Differential Testing](https://www.ieee-security.org/TC/SP2017/papers/390.pdf).
-
 # Getting Started
-The current code is a WIP to port NEZHA to the latest libFuzzer and is non-tested.
-Users who wish to access the code used in the NEZHA paper and the respective
-examples should access [v-0.1](https://github.com/nezha-dt/nezha/tree/v0.1).
+The current code is running in the environment of llvm9 and clang9
+Users can start with the examples of nezha [v-0.1](https://github.com/nezha-dt/nezha/tree/v0.1).
+Then, you can better comprehend the example about "handshake"
 
-This repo follows the format of libFuzzer's [fuzzer-test-suite](https://github.com/google/fuzzer-test-suite).
-For a simple example on how to perform differential testing using the NEZHA
-port of libFuzzer see [differential_fuzzing_tutorial](https://github.com/nezha-dt/nezha/tree/master/differential_fuzzing_tutorial).
+Before you run the makefile of the dir "handshake", you should make the certain version of SSL implements with clang and sanitizercoverage
+
+
 
 # Support
 We welcome issues and pull requests with new fuzzing targets.

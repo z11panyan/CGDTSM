@@ -40,16 +40,29 @@ TracePC TPC;
 int ScopedDoingMyOwnMemOrStr::DoingMyOwnMemOrStr;
 
 bool TracePC::NewTraceDiff(std::vector<int>& feature_v) {
-  return FeatureTraceDiff.insert(feature_v).second;
+   //return OutputDiffVec[0]==0||OutputDiffVec[1]==0||OutputDiffVec[2]==0;
+   return FeatureTraceDiff.insert(feature_v).second;
 }
 
 bool TracePC::NewOutputDiff() {
-  return OutputTraceDiff.insert(OutputDiffVec).second;
+  return OutputTraceDiff.insert(OutputDiffVec).second;  
+}
+bool TracePC::NewOutputDiff_change(){
+	bool flag = false;
+	for(int j = 0 ;j < UC->size; j++)
+	{
+		for(int i = j+1; i < UC->size; i++)
+		{
+			if(OutputDiffVec[j]!=OutputDiffVec[i])
+				flag = true;
+		}
+	}
+	return flag;
 }
 
 void TracePC::InitializeDiffCallbacks(ExternalFunctions *EF) {
   assert(EF->LLVMFuzzerCustomCallbacks);
-  assert(EF->__sanitizer_update_counter_bitset_and_clear_counters);
+  assert(EF->__sanitizer_cov_reset);
   UC = EF->LLVMFuzzerCustomCallbacks();
   assert(UC && UC->callbacks && UC->size > 0);
   OutputDiffVec = std::vector<int>(UC->size);;
@@ -72,6 +85,14 @@ size_t TracePC::GetTotalPCCoverage() {
 }
 
 
+//change on 11.6
+void TracePC::ResetCoverage() {  
+  for (size_t i = 1, N = GetNumPCs(); i < N; i++)
+  {
+      __sancov_trace_pc_pcs[i] = 0;
+  }
+}
+
 void TracePC::HandleInline8bitCountersInit(uint8_t *Start, uint8_t *Stop) {
   if (Start == Stop) return;
   if (NumModulesWithInline8bitCounters &&
@@ -85,6 +106,7 @@ void TracePC::HandleInline8bitCountersInit(uint8_t *Start, uint8_t *Stop) {
 void TracePC::HandleInit(uint32_t *Start, uint32_t *Stop) {
   if (Start == Stop || *Start) return;
   assert(NumModules < sizeof(Modules) / sizeof(Modules[0]));
+  int num_tmp  = 0;
   for (uint32_t *P = Start; P < Stop; P++) {
     NumGuards++;
     if (NumGuards == kNumPCs) {
@@ -94,10 +116,13 @@ void TracePC::HandleInit(uint32_t *Start, uint32_t *Stop) {
           "         for more efficient fuzzing and precise coverage data\n");
     }
     *P = NumGuards % kNumPCs;
+    num_tmp++;
   }
   Modules[NumModules].Start = Start;
   Modules[NumModules].Stop = Stop;
+  ModuleNum[NumModules] = num_tmp;
   NumModules++;
+  
 }
 
 void TracePC::PrintModuleInfo() {
